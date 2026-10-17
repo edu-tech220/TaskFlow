@@ -1,0 +1,10 @@
+@model string
+@{
+    ViewData["Title"] = "Error";
+}
+
+<div class="alert alert-danger">
+    <h5 class="alert-heading">No se pudo completar la operación</h5>
+    <p class="mb-0">@Model</p>
+</div>
+<a class="btn btn-outline-secondary" asp-controller="Calendar" asp-action="Index">Volver al calendario</a>

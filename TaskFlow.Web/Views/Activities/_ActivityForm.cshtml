@@ -1,0 +1,56 @@
+@model ActivityFormViewModel
+@{
+    var isEdit = Model.Id is not null;
+}
+
+<div asp-validation-summary="All" class="text-danger mb-3"></div>
+
+<div class="mb-3">
+    <label asp-for="Name" class="form-label"></label>
+    <input asp-for="Name" class="form-control" maxlength="100" />
+</div>
+<div class="mb-3">
+    <label asp-for="Description" class="form-label"></label>
+    <textarea asp-for="Description" class="form-control" rows="2" maxlength="500"></textarea>
+</div>
+
+@if (isEdit)
+{
+    <div class="form-check mb-2">
+        <input asp-for="ChangeSchedule" class="form-check-input" id="changeSchedule" />
+        <label class="form-check-label" for="changeSchedule">Cambiar horario (crea una versión nueva; hoy y el pasado no cambian)</label>
+    </div>
+}
+else
+{
+    <input type="hidden" asp-for="ChangeSchedule" />
+}
+
+<fieldset id="scheduleFields" class="border rounded p-3 mb-3">
+    <legend class="float-none w-auto px-2 fs-6">Horario</legend>
+    <div class="row g-3">
+        <div class="col-sm-4">
+            <label asp-for="StartTime" class="form-label"></label>
+            <input asp-for="StartTime" type="time" class="form-control" value="@(Model.StartTime?.ToString("HH:mm"))" />
+        </div>
+        <div class="col-sm-4">
+            <label asp-for="EndTime" class="form-label"></label>
+            <input asp-for="EndTime" type="time" class="form-control" value="@(Model.EndTime?.ToString("HH:mm"))" />
+        </div>
+        <div class="col-sm-4">
+            <label asp-for="EffectiveFrom" class="form-label"></label>
+            <input asp-for="EffectiveFrom" type="date" class="form-control" value="@(Model.EffectiveFrom?.ToString("yyyy-MM-dd"))" />
+            <div class="form-text">@(isEdit ? "Vacío = a partir de mañana." : "Vacío = hoy. Puede ser una fecha pasada.")</div>
+        </div>
+    </div>
+    <div class="mt-3">
+        <span class="form-label d-block">Días</span>
+        @foreach (var day in Display.WeekMondayFirst)
+        {
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="checkbox" name="Days" value="@day" id="day-@day" @(Model.Days.Contains(day) ? "checked" : "") />
+                <label class="form-check-label" for="day-@day">@Display.DayName(day)</label>
+            </div>
+        }
+    </div>
+</fieldset>

@@ -1,0 +1,68 @@
+@model CalendarViewModel
+@{
+    var c = Model.Calendar;
+    ViewData["Title"] = Display.MonthTitle(c.Year, c.Month);
+}
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div class="btn-group">
+        <a class="btn btn-outline-secondary" asp-action="Index" asp-route-year="@Model.PreviousMonth.Year" asp-route-month="@Model.PreviousMonth.Month">&larr;</a>
+        <a class="btn btn-outline-secondary" asp-action="Index">Hoy</a>
+        <a class="btn btn-outline-secondary" asp-action="Index" asp-route-year="@Model.NextMonth.Year" asp-route-month="@Model.NextMonth.Month">&rarr;</a>
+    </div>
+    <h1 class="h3 m-0">@Display.MonthTitle(c.Year, c.Month)</h1>
+    <span class="badge text-bg-info fs-6">Descansos: @c.RestDaysUsed / @c.RestDayLimit</span>
+</div>
+
+<div class="calendar">
+    @foreach (var day in Display.WeekMondayFirst)
+    {
+        <div class="calendar-head">@Display.DayShort(day)</div>
+    }
+
+    @for (var i = 0; i < Model.LeadingBlanks; i++)
+    {
+        <div class="calendar-cell empty"></div>
+    }
+
+    @foreach (var day in c.Days)
+    {
+        var (label, css) = Display.Of(day.Status);
+        <a class="calendar-cell @css @(day.Date == c.Today ? "today" : "")"
+           asp-action="Day" asp-route-date="@day.Date.ToString("yyyy-MM-dd")" title="@label">
+            <div class="d-flex justify-content-between">
+                <span class="fw-semibold">@day.Date.Day</span>
+                @if (day.IsRestDay)
+                {
+                    <span class="badge text-bg-primary">D</span>
+                }
+            </div>
+            <div class="small">@label</div>
+            @if (day.ScheduledCount > 0)
+            {
+                <div class="small opacity-75">@day.CompletedCount/@day.ScheduledCount</div>
+            }
+        </a>
+    }
+</div>
+
+<div class="d-flex flex-wrap gap-2 mt-3 small">
+    @foreach (var status in Enum.GetValues<DayStatus>())
+    {
+        var (label, css) = Display.Of(status);
+        <span class="legend @css">@label</span>
+    }
+</div>
+
+<div class="card mt-4" style="max-width: 28rem">
+    <div class="card-body">
+        <h2 class="h6">Límite de descansos de @Display.MonthTitle(c.Year, c.Month)</h2>
+        <form asp-action="SetLimit" method="post" class="d-flex gap-2 align-items-center">
+            <input type="hidden" name="year" value="@c.Year" />
+            <input type="hidden" name="month" value="@c.Month" />
+            <input type="number" name="maxRestDays" class="form-control" min="0" max="10" value="@c.RestDayLimit" style="max-width: 6rem" />
+            <button type="submit" class="btn btn-outline-primary">Guardar</button>
+        </form>
+        <div class="form-text">Entre 0 y 10. No puede ser menor que los descansos ya marcados.</div>
+    </div>
+</div>

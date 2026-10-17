@@ -1,0 +1,42 @@
+@model ActivityFormViewModel
+@{
+    ViewData["Title"] = "Editar actividad";
+}
+
+<h1 class="h3 mb-3">Editar actividad</h1>
+
+<form asp-action="Edit" asp-route-id="@Model.Id" method="post" style="max-width: 48rem">
+    <partial name="_ActivityForm" model="Model" />
+    <button type="submit" class="btn btn-primary">Guardar</button>
+    <a class="btn btn-link" asp-action="Index">Cancelar</a>
+</form>
+
+@if (Model.Versions.Count > 0)
+{
+    <h2 class="h5 mt-5">Historial de horarios</h2>
+    <table class="table table-sm" style="max-width: 48rem">
+        <thead><tr><th>Desde</th><th>Hasta</th><th>Horario</th><th>Días</th></tr></thead>
+        <tbody>
+            @foreach (var v in Model.Versions)
+            {
+                <tr>
+                    <td>@v.EffectiveFrom.ToString("yyyy-MM-dd")</td>
+                    <td>@(v.EffectiveTo?.ToString("yyyy-MM-dd") ?? "—")</td>
+                    <td>@Display.Time(v.StartTime)–@Display.Time(v.EndTime)</td>
+                    <td>@Display.Days(v.Days)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@section Scripts {
+    <script>
+        // Habilita los campos de horario solo si se va a cambiar (fieldset deshabilitado = no se envía).
+        const toggle = document.getElementById('changeSchedule');
+        const fields = document.getElementById('scheduleFields');
+        const sync = () => fields.disabled = !toggle.checked;
+        toggle.addEventListener('change', sync);
+        sync();
+    </script>
+}
