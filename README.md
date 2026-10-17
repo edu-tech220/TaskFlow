@@ -5,9 +5,10 @@ Seguimiento de actividades diarias con horarios versionados, días de descanso y
 | Proyecto | Qué es | URL local |
 |---|---|---|
 | `TaskFlow/` | API REST (ASP.NET Core Web API + EF Core + SQL Server) | https://localhost:7256 (perfil `https`) / http://localhost:5057 (perfil `http`) |
-| `TaskFlow.Web/` | Frontend ASP.NET Core MVC (Razor + Bootstrap) que consume la API | http://localhost:5100 / https://localhost:7100 |
 | `tests/TaskFlow.Tests/` | Pruebas xUnit: unitarias e integración contra SQL Server | — |
 | `postman/` | Colección y entorno de Postman (38 peticiones, 91 aserciones) | — |
+
+**Frontend:** vive en su propio repositorio, [edu-tech220/TaskFlow.Web](https://github.com/edu-tech220/TaskFlow.Web) (ASP.NET Core MVC). Consume esta API por HTTP en `https://localhost:7256`.
 
 ## Requisitos
 
@@ -24,15 +25,11 @@ dotnet ef database update
 
 # 2. Levantar la API (Swagger UI en https://localhost:7256/swagger)
 dotnet run --launch-profile https
-
-# 3. En otra terminal, levantar el frontend
-cd ..\TaskFlow.Web
-dotnet run --launch-profile https
 ```
 
-En Visual Studio: clic derecho en la solución → *Configurar proyectos de inicio* → *Varios proyectos de inicio* → `TaskFlow` y `TaskFlow.Web` en *Iniciar*, ambos con el perfil **https**.
+En Visual Studio, elige el perfil **https** en el botón de ejecutar (no IIS Express): el frontend espera la API en `https://localhost:7256`.
 
-La URL de la API que usa el frontend está en `TaskFlow.Web/appsettings.json` → `TaskFlowApi:BaseUrl`.
+`Cors:AllowedOrigins` en `appsettings.Development.json` ya incluye los puertos del frontend (`https://localhost:7100`, `http://localhost:5100`) por si en el futuro se llama a la API desde el navegador.
 
 ## Configuración de la API
 

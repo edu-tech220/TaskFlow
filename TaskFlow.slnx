@@ -2,6 +2,5 @@
   <Folder Name="/tests/">
     <Project Path="tests/TaskFlow.Tests/TaskFlow.Tests.csproj" />
   </Folder>
-  <Project Path="TaskFlow.Web/TaskFlow.Web.csproj" />
   <Project Path="TaskFlow/TaskFlow.csproj" />
 </Solution>
