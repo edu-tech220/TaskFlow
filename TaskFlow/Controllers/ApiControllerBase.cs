@@ -7,8 +7,9 @@ namespace TaskFlow.Controllers;
 // [ApiController] activa: validación automática del modelo (400 con ValidationProblemDetails
 // si fallan las DataAnnotations), binding inferido ([FromBody] para objetos complejos) y
 // respuestas de error en formato ProblemDetails.
+// Nota: no se usa [Produces("application/json")] aquí porque ese filtro reemplaza el
+// Content-Type de TODAS las respuestas, incluido application/problem+json de los errores.
 [ApiController]
-[Produces("application/json")]
 public abstract class ApiControllerBase : ControllerBase
 {
     // Traduce un Error de negocio a ProblemDetails con el código HTTP correspondiente.
