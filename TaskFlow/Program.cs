@@ -44,6 +44,9 @@ builder.Services.AddDbContext<TaskFlowDbContext>(options =>
 
 // Servicios de negocio: Scoped porque dependen del DbContext (también Scoped).
 builder.Services.AddScoped<IActivityService, ActivityService>();
+builder.Services.AddScoped<IRestDayService, RestDayService>();
+builder.Services.AddScoped<IDailyRecordService, DailyRecordService>();
+builder.Services.AddScoped<ICalendarService, CalendarService>();
 
 var app = builder.Build();
 
