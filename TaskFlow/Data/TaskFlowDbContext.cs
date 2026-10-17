@@ -32,6 +32,20 @@ public class TaskFlowDbContext(
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TaskFlowDbContext).Assembly);
     }
 
+    // Convenciones globales: aplican a todas las propiedades de un tipo en todo el modelo.
+    // SQL Server no guarda el "Kind" de un DateTime; al leer, EF lo devuelve como Unspecified
+    // y el JSON saldría sin la "Z". Este converter lo marca como UTC al materializar.
+    // No cambia el tipo de columna (sigue siendo datetime2), así que no requiere migración.
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+    }
+
+    private sealed class UtcDateTimeConverter()
+        : Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+            toDb => toDb,
+            fromDb => DateTime.SpecifyKind(fromDb, DateTimeKind.Utc));
+
     // Todas las sobrecargas de SaveChanges terminan en estas dos; con eso basta para
     // que cualquier guardado pase por StampAuditFields.
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
