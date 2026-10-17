@@ -11,6 +11,10 @@ public class Activity : IHasCreatedAt, IHasUpdatedAt
     // Convención: propiedad "Id" de tipo int => PK con IDENTITY(1,1).
     public int Id { get; set; }
 
+    // Dueño de la actividad. Todas las consultas filtran por el usuario autenticado.
+    public int UserId { get; set; }
+    public User User { get; set; } = null!;
+
     // string NO nullable (Nullable está habilitado en el csproj) => columna NOT NULL.
     // Se inicializa en string.Empty para que el compilador no avise de null.
     public string Name { get; set; } = string.Empty;

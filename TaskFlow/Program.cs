@@ -12,8 +12,9 @@ builder.Services.AddControllers()
     // Enums como texto en JSON ("Completed" en lugar de 1). También acepta números al leer.
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
-// Genera el documento OpenAPI nativo de .NET (Microsoft.AspNetCore.OpenApi).
-builder.Services.AddOpenApi();
+// Genera el documento OpenAPI nativo de .NET (Microsoft.AspNetCore.OpenApi), con el
+// esquema Bearer para que Swagger UI tenga botón "Authorize".
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer<BearerSecuritySchemeTransformer>());
 
 // ProblemDetails para todos los errores (RFC 9457) + manejador global de excepciones.
 builder.Services.AddProblemDetails();
@@ -21,6 +22,8 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 // Opciones, reloj, DbContext y servicios de negocio (Common/ServiceCollectionExtensions.cs).
 builder.Services.AddTaskFlowCore(builder.Configuration);
+// JWT Bearer + "todo requiere login" salvo [AllowAnonymous].
+builder.Services.AddTaskFlowAuth(builder.Configuration);
 builder.Services.AddTaskFlowCors(builder.Configuration);
 builder.Services.AddTaskFlowRateLimiting(builder.Configuration);
 
@@ -35,8 +38,9 @@ app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
-    // Expone el documento en /openapi/v1.json.
-    app.MapOpenApi();
+    // Expone el documento en /openapi/v1.json. AllowAnonymous: si no, la política global
+    // pediría token hasta para leer la documentación.
+    app.MapOpenApi().AllowAnonymous();
 
     // Swagger UI solo como visor de ese documento (en /swagger).
     app.UseSwaggerUI(options =>
@@ -53,7 +57,8 @@ app.UseSecurityHeaders();
 app.UseHttpsRedirection();
 app.UseCors(CorsOptions.PolicyName);   // antes de los endpoints para responder preflight OPTIONS
 app.UseRateLimiter();
-app.UseAuthorization();
+app.UseAuthentication();   // lee y valida el JWT => HttpContext.User
+app.UseAuthorization();    // aplica [Authorize] / la política global
 app.MapControllers();
 
 app.Run();

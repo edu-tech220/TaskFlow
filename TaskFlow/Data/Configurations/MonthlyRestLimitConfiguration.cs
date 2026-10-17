@@ -21,8 +21,13 @@ public class MonthlyRestLimitConfiguration : IEntityTypeConfiguration<MonthlyRes
 
         builder.HasKey(l => l.Id);
 
-        // Un solo límite por mes.
-        builder.HasIndex(l => new { l.Year, l.Month })
+        // Un solo límite por mes y usuario.
+        builder.HasIndex(l => new { l.UserId, l.Year, l.Month })
             .IsUnique();
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(l => l.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

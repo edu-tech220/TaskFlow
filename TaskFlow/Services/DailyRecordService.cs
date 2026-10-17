@@ -18,7 +18,7 @@ public interface IDailyRecordService
 }
 
 // Reglas 12 a 16: registros diarios.
-public sealed class DailyRecordService(TaskFlowDbContext db, IAppClock clock) : IDailyRecordService
+public sealed class DailyRecordService(TaskFlowDbContext db, IAppClock clock, ICurrentUser currentUser) : IDailyRecordService
 {
     public const int MaxRangeDays = 366;
 
@@ -55,7 +55,7 @@ public sealed class DailyRecordService(TaskFlowDbContext db, IAppClock clock) : 
 
         var activity = await db.Activities
             .AsNoTracking()
-            .Where(a => a.Id == activityId)
+            .Where(a => a.Id == activityId && a.UserId == currentUser.UserId)
             .Select(a => new { a.Id, a.Name })
             .FirstOrDefaultAsync(ct);
         if (activity is null)
@@ -98,8 +98,9 @@ public sealed class DailyRecordService(TaskFlowDbContext db, IAppClock clock) : 
     // Regla 15: se puede eliminar para corregir (vuelve a Pending o Unrecorded).
     public async Task<Result> DeleteAsync(int activityId, DateOnly date, CancellationToken ct)
     {
+        var userId = currentUser.UserId;
         var deleted = await db.DailyRecords
-            .Where(r => r.ActivityId == activityId && r.Date == date)
+            .Where(r => r.ActivityId == activityId && r.Date == date && r.Activity.UserId == userId)
             .ExecuteDeleteAsync(ct);
 
         return deleted == 0 ? NotFound(activityId, date) : Result.Success();
@@ -110,14 +111,19 @@ public sealed class DailyRecordService(TaskFlowDbContext db, IAppClock clock) : 
     // record creado con constructor. Expression<Func<...>> (no Func) para que EF lo lea como
     // árbol de expresión y lo convierta a SQL, en lugar de filtrar en memoria.
     // Con Select no hace falta AsNoTracking (los DTOs no se rastrean), pero se deja explícito.
-    private IQueryable<DailyRecordResponse> Query(Expression<Func<DailyRecord, bool>> filter) =>
-        db.DailyRecords
+    // Siempre restringido a los registros de actividades del usuario actual.
+    private IQueryable<DailyRecordResponse> Query(Expression<Func<DailyRecord, bool>> filter)
+    {
+        var userId = currentUser.UserId;
+        return db.DailyRecords
             .AsNoTracking()
+            .Where(r => r.Activity.UserId == userId)
             .Where(filter)
             .OrderBy(r => r.Date).ThenBy(r => r.ActivityId)
             .Select(r => new DailyRecordResponse(
                 r.Id, r.ActivityId, r.Activity.Name, r.Date, r.Status,
                 r.ActualEndTime, r.Notes, r.CreatedAt, r.UpdatedAt));
+    }
 
     private static DailyRecordResponse ToResponse(DailyRecord r, string activityName) =>
         new(r.Id, r.ActivityId, activityName, r.Date, r.Status, r.ActualEndTime, r.Notes, r.CreatedAt, r.UpdatedAt);

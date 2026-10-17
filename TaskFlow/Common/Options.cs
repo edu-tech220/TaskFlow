@@ -24,6 +24,27 @@ public sealed class RestDayOptions
     public int DefaultMonthlyLimit { get; set; } = 4;
 }
 
+public sealed class JwtOptions
+{
+    public const string SectionName = "Jwt";
+
+    // Quién emite el token y para quién es. La API valida ambos al recibirlo.
+    [Required]
+    public string Issuer { get; set; } = "TaskFlow";
+
+    [Required]
+    public string Audience { get; set; } = "TaskFlow";
+
+    // Clave simétrica HMAC-SHA256. Es un SECRETO: va en User Secrets o variables de entorno,
+    // nunca en appsettings del repo. 32+ caracteres = 256 bits como mínimo.
+    [Required, MinLength(32, ErrorMessage = "Jwt:Key debe tener al menos 32 caracteres.")]
+    public string Key { get; set; } = string.Empty;
+
+    // Vida del token de acceso. Al vencer, el cliente vuelve a iniciar sesión.
+    [Range(5, 7 * 24 * 60)]
+    public int ExpiresMinutes { get; set; } = 480;
+}
+
 public sealed class CorsOptions
 {
     public const string SectionName = "Cors";
@@ -37,7 +58,13 @@ public sealed class RateLimitOptions
 {
     public const string SectionName = "RateLimiting";
 
+    public const string AuthPolicy = "auth";
+
     // Peticiones permitidas por IP en cada ventana de 1 minuto.
     [Range(1, 100_000)]
     public int PermitLimitPerMinute { get; set; } = 300;
+
+    // Límite más estricto para login/registro: frena ataques de fuerza bruta a contraseñas.
+    [Range(1, 100_000)]
+    public int AuthPermitLimitPerMinute { get; set; } = 10;
 }

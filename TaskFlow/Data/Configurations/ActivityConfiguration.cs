@@ -26,6 +26,8 @@ public class ActivityConfiguration : IEntityTypeConfiguration<Activity>
         builder.Property(a => a.Description)
             .HasMaxLength(500);
 
+        // La relación con User (Restrict) está en UserConfiguration; EF crea el índice de la FK.
+
         // Relación 1:N Activity -> ActivitySchedule.
         // Cascade: borrar una actividad borra sus versiones de horario (y estas, sus días).
         builder.HasMany(a => a.Schedules)

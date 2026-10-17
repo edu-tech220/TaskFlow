@@ -25,7 +25,8 @@ public interface IRestDayService
 public sealed class RestDayService(
     TaskFlowDbContext db,
     IAppClock clock,
-    IOptions<RestDayOptions> options) : IRestDayService
+    IOptions<RestDayOptions> options,
+    ICurrentUser currentUser) : IRestDayService
 {
     public async Task<Result<RestDayMonthResponse>> GetMonthAsync(int year, int month, CancellationToken ct)
     {
@@ -36,7 +37,7 @@ public sealed class RestDayService(
 
         var days = await db.RestDays
             .AsNoTracking()
-            .Where(r => r.Date >= first && r.Date <= last)
+            .Where(r => r.UserId == currentUser.UserId && r.Date >= first && r.Date <= last)
             .OrderBy(r => r.Date)
             .Select(r => new RestDayResponse(r.Id, r.Date, r.Notes, r.CreatedAt)) // proyección: solo columnas necesarias
             .ToListAsync(ct);
@@ -51,7 +52,7 @@ public sealed class RestDayService(
     {
         var restDay = await db.RestDays
             .AsNoTracking()
-            .Where(r => r.Date == date)
+            .Where(r => r.UserId == currentUser.UserId && r.Date == date)
             .Select(r => new RestDayResponse(r.Id, r.Date, r.Notes, r.CreatedAt))
             .FirstOrDefaultAsync(ct);
 
@@ -70,7 +71,7 @@ public sealed class RestDayService(
             return monthError;
 
         // Regla 8: fecha no repetida.
-        if (await db.RestDays.AnyAsync(r => r.Date == date, ct))
+        if (await db.RestDays.AnyAsync(r => r.UserId == currentUser.UserId && r.Date == date, ct))
             return Error.Conflict("RestDayAlreadyExists", $"El {date:yyyy-MM-dd} ya está marcado como descanso.");
 
         // Regla 9: no superar el límite del mes.
@@ -82,6 +83,7 @@ public sealed class RestDayService(
 
         var restDay = new RestDay
         {
+            UserId = currentUser.UserId,
             Date = date,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim()
         };
@@ -93,7 +95,7 @@ public sealed class RestDayService(
 
     public async Task<Result> DeleteAsync(DateOnly date, CancellationToken ct)
     {
-        var restDay = await db.RestDays.FirstOrDefaultAsync(r => r.Date == date, ct);
+        var restDay = await db.RestDays.FirstOrDefaultAsync(r => r.UserId == currentUser.UserId && r.Date == date, ct);
         if (restDay is null)
             return NotFound(date);
 
@@ -129,10 +131,11 @@ public sealed class RestDayService(
                 "Quita descansos primero.");
 
         // Upsert: si existe la fila del mes se actualiza; si no, se inserta.
-        var entity = await db.MonthlyRestLimits.FirstOrDefaultAsync(l => l.Year == year && l.Month == month, ct);
+        var entity = await db.MonthlyRestLimits.FirstOrDefaultAsync(
+            l => l.UserId == currentUser.UserId && l.Year == year && l.Month == month, ct);
         if (entity is null)
         {
-            entity = new MonthlyRestLimit { Year = year, Month = month };
+            entity = new MonthlyRestLimit { UserId = currentUser.UserId, Year = year, Month = month };
             db.MonthlyRestLimits.Add(entity);
         }
         entity.MaxRestDays = maxRestDays;
@@ -147,7 +150,7 @@ public sealed class RestDayService(
     {
         // Select de un int? => FirstOrDefault devuelve null si no hay fila (en vez de 0).
         var custom = await db.MonthlyRestLimits
-            .Where(l => l.Year == year && l.Month == month)
+            .Where(l => l.UserId == currentUser.UserId && l.Year == year && l.Month == month)
             .Select(l => (int?)l.MaxRestDays)
             .FirstOrDefaultAsync(ct);
 
@@ -158,7 +161,7 @@ public sealed class RestDayService(
     {
         var (first, last) = Months.Range(year, month);
         // Rango de fechas (no YEAR()/MONTH() sobre la columna) para que SQL use el índice en Date.
-        return db.RestDays.CountAsync(r => r.Date >= first && r.Date <= last, ct);
+        return db.RestDays.CountAsync(r => r.UserId == currentUser.UserId && r.Date >= first && r.Date <= last, ct);
     }
 
     private static Error NotFound(DateOnly date) =>

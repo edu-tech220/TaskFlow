@@ -6,7 +6,7 @@ Seguimiento de actividades diarias con horarios versionados, días de descanso y
 |---|---|---|
 | `TaskFlow/` | API REST (ASP.NET Core Web API + EF Core + SQL Server) | https://localhost:7256 (perfil `https`) / http://localhost:5057 (perfil `http`) |
 | `tests/TaskFlow.Tests/` | Pruebas xUnit: unitarias e integración contra SQL Server | — |
-| `postman/` | Colección y entorno de Postman (38 peticiones, 91 aserciones) | — |
+| `postman/` | Colección y entorno de Postman (50 peticiones, 116 aserciones) | — |
 
 **Frontend:** vive en su propio repositorio, [edu-tech220/TaskFlow.Web](https://github.com/edu-tech220/TaskFlow.Web) (ASP.NET Core MVC). Consume esta API por HTTP en `https://localhost:7256`.
 
@@ -19,6 +19,11 @@ Seguimiento de actividades diarias con horarios versionados, días de descanso y
 ## Puesta en marcha
 
 ```powershell
+# 0. Clave para firmar los JWT (una sola vez por máquina; NO va en el repo)
+cd TaskFlow
+dotnet user-secrets set "Jwt:Key" "<una-clave-aleatoria-de-32+-caracteres>"
+cd ..
+
 # 1. Crear la base TaskFlow con las migraciones
 cd TaskFlow
 dotnet ef database update
@@ -31,6 +36,16 @@ En Visual Studio, elige el perfil **https** en el botón de ejecutar (no IIS Exp
 
 `Cors:AllowedOrigins` en `appsettings.Development.json` ya incluye los puertos del frontend (`https://localhost:7100`, `http://localhost:5100`) por si en el futuro se llama a la API desde el navegador.
 
+## Autenticación y usuarios
+
+- Login con correo y contraseña → **JWT** (HMAC-SHA256, 8 h). Se manda en `Authorization: Bearer <token>`.
+- Contraseñas con `PasswordHasher<User>` (PBKDF2 + salt, el mismo de ASP.NET Identity).
+- **Todo requiere login** (política global), salvo `register`, `login` y la documentación OpenAPI.
+- **Cada usuario solo ve sus datos**: actividades, registros, descansos y límites. Pedir un recurso de otro usuario da 404.
+- **El primer usuario registrado es Admin.** Los admins listan usuarios y pueden cambiarles el rol o desactivarlos; un usuario desactivado no puede entrar y su token deja de valer al instante.
+- Login y registro tienen rate limit estricto (10/min por IP) contra fuerza bruta.
+- En Swagger: `POST /api/auth/login` → copia `token` → botón **Authorize**.
+
 ## Configuración de la API
 
 | Clave | Default | Para qué |
@@ -40,8 +55,12 @@ En Visual Studio, elige el perfil **https** en el botón de ejecutar (no IIS Exp
 | `RestDays:DefaultMonthlyLimit` | `4` | Límite de descansos de un mes sin límite propio |
 | `Cors:AllowedOrigins` | `[]` (dev: puertos del frontend) | Orígenes de navegador permitidos |
 | `RateLimiting:PermitLimitPerMinute` | `300` | Peticiones por IP por minuto |
+| `RateLimiting:AuthPermitLimitPerMinute` | `10` | Login/registro por IP por minuto |
+| `Jwt:Key` | **User Secrets** | Clave de firma (32+ caracteres) |
+| `Jwt:Issuer` / `Jwt:Audience` | `TaskFlow` | Validados en cada token |
+| `Jwt:ExpiresMinutes` | `480` | Vida del token |
 
-**User Secrets:** el proyecto ya tiene `UserSecretsId`. La cadena de desarrollo usa autenticación de Windows (no tiene contraseña), por eso vive en `appsettings.Development.json`. Si usas un usuario SQL, no la subas al repo; guárdala en secretos:
+**User Secrets:** `Jwt:Key` vive ahí (fuera del repo). La cadena de desarrollo usa autenticación de Windows (no tiene contraseña), por eso vive en `appsettings.Development.json`. Si usas un usuario SQL, guárdala también en secretos:
 
 ```powershell
 cd TaskFlow
@@ -52,6 +71,12 @@ dotnet user-secrets set "ConnectionStrings:TaskFlow" "Server=...;User Id=...;Pas
 
 | Método | Ruta | Notas |
 |---|---|---|
+| POST | `/api/auth/register` | Público. 201 + `{ token, expiresAt, user }` |
+| POST | `/api/auth/login` | Público. 401 si las credenciales no son válidas |
+| GET/PUT | `/api/auth/me` | Perfil propio (nombre) |
+| PUT | `/api/auth/me/password` | `{ currentPassword, newPassword }` |
+| GET | `/api/users` | Solo Admin |
+| PUT | `/api/users/{id}` | Solo Admin: `{ role, isActive }` (no a sí mismo) |
 | GET | `/api/activities` | Lista con horario vigente e historial |
 | GET | `/api/activities/{id}` | |
 | POST | `/api/activities` | Crea actividad + primera versión de horario (201 + Location) |
@@ -82,9 +107,9 @@ Todos los errores son `ProblemDetails` (`application/problem+json`) con una exte
 ## Pruebas
 
 ```powershell
-dotnet test                       # 43 pruebas; crea/borra la base TaskFlow_Tests
+dotnet test                       # 51 pruebas; crea/borra la base TaskFlow_Tests
 
-# Postman (con la API corriendo en http://localhost:5057 sobre una base vacía)
+# Postman (con la API corriendo en http://localhost:5057; registra usuarios nuevos en cada corrida)
 npx newman run postman/TaskFlow.postman_collection.json -e postman/TaskFlow.Local.postman_environment.json
 ```
 

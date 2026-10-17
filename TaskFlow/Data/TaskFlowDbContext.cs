@@ -17,6 +17,7 @@ public class TaskFlowDbContext(
 {
     // "=> Set<T>()" en lugar de { get; set; }: evita el warning de nullable y
     // deja claro que EF administra el DbSet.
+    public DbSet<User> Users => Set<User>();
     public DbSet<Activity> Activities => Set<Activity>();
     public DbSet<ActivitySchedule> ActivitySchedules => Set<ActivitySchedule>();
     public DbSet<ActivityScheduleDay> ActivityScheduleDays => Set<ActivityScheduleDay>();

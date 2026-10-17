@@ -19,6 +19,8 @@ public abstract class ApiControllerBase : ControllerBase
         var (status, title) = error.Type switch
         {
             ErrorType.NotFound => (StatusCodes.Status404NotFound, "Recurso no encontrado"),
+            ErrorType.Unauthorized => (StatusCodes.Status401Unauthorized, "No autenticado"),
+            ErrorType.Forbidden => (StatusCodes.Status403Forbidden, "Sin permiso"),
             ErrorType.Conflict => (StatusCodes.Status409Conflict, "Conflicto con el estado actual"),
             _ => (StatusCodes.Status400BadRequest, "Solicitud inválida")
         };

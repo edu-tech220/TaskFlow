@@ -18,7 +18,8 @@ public interface ICalendarService
 public sealed class CalendarService(
     TaskFlowDbContext db,
     IAppClock clock,
-    IRestDayService restDays) : ICalendarService
+    IRestDayService restDays,
+    ICurrentUser currentUser) : ICalendarService
 {
     public async Task<Result<CalendarMonthResponse>> GetMonthAsync(int year, int month, CancellationToken ct)
     {
@@ -43,11 +44,14 @@ public sealed class CalendarService(
     private async Task<IReadOnlyList<CalendarDayResponse>> BuildDaysAsync(
         DateOnly from, DateOnly to, DateOnly today, CancellationToken ct)
     {
+        var userId = currentUser.UserId;
+
         // Consulta 1: versiones de horario que se traslapan con el rango, con nombre y días.
         // Proyección a tipo anónimo: EF genera un solo SELECT con JOIN a Activities y
         // LEFT JOIN a ActivityScheduleDays, y arma la lista Days en memoria.
         var schedules = await db.ActivitySchedules
             .AsNoTracking()
+            .Where(s => s.Activity.UserId == userId)
             .Where(s => s.EffectiveFrom <= to && (s.EffectiveTo == null || s.EffectiveTo >= from))
             .Select(s => new
             {
@@ -64,14 +68,14 @@ public sealed class CalendarService(
         // Consulta 2: registros del rango, indexados por (actividad, fecha) para búsqueda O(1).
         var records = await db.DailyRecords
             .AsNoTracking()
-            .Where(r => r.Date >= from && r.Date <= to)
+            .Where(r => r.Activity.UserId == userId && r.Date >= from && r.Date <= to)
             .Select(r => new { r.ActivityId, r.Date, r.Status, r.ActualEndTime, r.Notes })
             .ToDictionaryAsync(r => (r.ActivityId, r.Date), ct);
 
         // Consulta 3: descansos del rango.
         var restDates = (await db.RestDays
             .AsNoTracking()
-            .Where(r => r.Date >= from && r.Date <= to)
+            .Where(r => r.UserId == userId && r.Date >= from && r.Date <= to)
             .Select(r => r.Date)
             .ToListAsync(ct))
             .ToHashSet();

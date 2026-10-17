@@ -18,7 +18,8 @@ public interface IActivityService
 
 // Reglas de negocio de actividades y horarios versionados (reglas 1 a 7).
 // Usa el DbContext directamente: DbSet ya es el repositorio y SaveChanges la unidad de trabajo.
-public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IActivityService
+// Todo se filtra por currentUser.UserId: cada usuario solo ve y modifica sus actividades.
+public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock, ICurrentUser currentUser) : IActivityService
 {
     public async Task<IReadOnlyList<ActivityResponse>> GetAllAsync(CancellationToken ct)
     {
@@ -26,6 +27,7 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
         // Include + ThenInclude: carga versiones y sus días en la misma consulta (JOIN).
         var activities = await db.Activities
             .AsNoTracking()
+            .Where(a => a.UserId == currentUser.UserId)
             .Include(a => a.Schedules).ThenInclude(s => s.Days)
             .OrderBy(a => a.Name)
             .ToListAsync(ct);
@@ -39,8 +41,9 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
         var activity = await db.Activities
             .AsNoTracking()
             .Include(a => a.Schedules).ThenInclude(s => s.Days)
-            .FirstOrDefaultAsync(a => a.Id == id, ct);
+            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == currentUser.UserId, ct);
 
+        // De otro usuario => 404 (no 403): no se revela que el id existe.
         return activity is null ? NotFound(id) : ToResponse(activity, clock.Today);
     }
 
@@ -52,6 +55,7 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
 
         var activity = new Activity
         {
+            UserId = currentUser.UserId,
             Name = request.Name.Trim(),
             Description = Normalize(request.Description),
             Schedules =
@@ -124,7 +128,7 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
     // Regla 6: solo se elimina si no tiene registros diarios.
     public async Task<Result> DeleteAsync(int id, CancellationToken ct)
     {
-        if (!await db.Activities.AnyAsync(a => a.Id == id, ct))
+        if (!await db.Activities.AnyAsync(a => a.Id == id && a.UserId == currentUser.UserId, ct))
             return NotFound(id);
 
         if (await db.DailyRecords.AnyAsync(r => r.ActivityId == id, ct))
@@ -133,7 +137,7 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
 
         // ExecuteDeleteAsync (EF 7+): DELETE directo en SQL, sin cargar la entidad.
         // Las versiones y sus días se van por el ON DELETE CASCADE de la BD.
-        await db.Activities.Where(a => a.Id == id).ExecuteDeleteAsync(ct);
+        await db.Activities.Where(a => a.Id == id && a.UserId == currentUser.UserId).ExecuteDeleteAsync(ct);
         return Result.Success();
     }
 
@@ -240,7 +244,7 @@ public sealed class ActivityService(TaskFlowDbContext db, IAppClock clock) : IAc
     private Task<Activity?> LoadTrackedAsync(int id, CancellationToken ct) =>
         db.Activities
             .Include(a => a.Schedules).ThenInclude(s => s.Days)
-            .FirstOrDefaultAsync(a => a.Id == id, ct);
+            .FirstOrDefaultAsync(a => a.Id == id && a.UserId == currentUser.UserId, ct);
 
     private static ActivitySchedule NewVersion(TimeOnly start, TimeOnly end, IEnumerable<DayOfWeek> days, DateOnly from) =>
         new()

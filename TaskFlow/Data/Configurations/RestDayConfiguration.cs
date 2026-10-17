@@ -14,9 +14,15 @@ public class RestDayConfiguration : IEntityTypeConfiguration<RestDay>
 
         builder.Property(r => r.Notes).HasMaxLength(200);
 
-        // Una fecha solo puede ser descanso una vez (regla 8). Además sirve para
-        // contar los descansos de un mes con un rango de fechas (index seek).
-        builder.HasIndex(r => r.Date)
+        // Una fecha solo puede ser descanso una vez por usuario (regla 8). Además sirve para
+        // contar los descansos de un mes de ese usuario con un rango de fechas (index seek).
+        builder.HasIndex(r => new { r.UserId, r.Date })
             .IsUnique();
+
+        // FK a Users sin navegación en la entidad: basta con declararla aquí.
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

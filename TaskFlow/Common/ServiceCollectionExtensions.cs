@@ -1,7 +1,13 @@
+using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using TaskFlow.Data;
+using TaskFlow.Entities;
 using TaskFlow.Services;
 
 namespace TaskFlow.Common;
@@ -39,6 +45,86 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRestDayService, RestDayService>();
         services.AddScoped<IDailyRecordService, DailyRecordService>();
         services.AddScoped<ICalendarService, CalendarService>();
+        services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IUserAdminService, UserAdminService>();
+
+        return services;
+    }
+
+    // Autenticación con JWT Bearer + autorización "todo requiere login" por defecto.
+    public static IServiceCollection AddTaskFlowAuth(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<JwtOptions>()
+            .Bind(configuration.GetSection(JwtOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        // Se lee aquí porque JwtBearer necesita la clave al configurarse.
+        var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+        if (jwt.Key.Length < 32)
+            throw new InvalidOperationException(
+                "Falta Jwt:Key (32+ caracteres). En desarrollo: dotnet user-secrets set \"Jwt:Key\" \"<clave larga>\"");
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUser, CurrentUser>();
+        services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options =>
+            {
+                // Sin esto, el handler renombra "sub" y "role" a URIs largas de ClaimTypes.
+                options.MapInboundClaims = false;
+
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = jwt.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = jwt.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30), // tolerancia de reloj (default: 5 min)
+                    NameClaimType = "name",
+                    RoleClaimType = "role"
+                };
+
+                options.Events = new JwtBearerEvents
+                {
+                    // Un JWT es válido hasta que expira aunque el usuario se desactive después.
+                    // Esta verificación (una consulta por petición) lo corta de inmediato.
+                    OnTokenValidated = async context =>
+                    {
+                        var sub = context.Principal?.FindFirst(CurrentUser.SubjectClaim)?.Value;
+                        var db = context.HttpContext.RequestServices.GetRequiredService<TaskFlowDbContext>();
+                        var active = int.TryParse(sub, out var id) &&
+                                     await db.Users.AnyAsync(u => u.Id == id && u.IsActive);
+                        if (!active)
+                            context.Fail("Usuario inexistente o desactivado.");
+                    }
+                };
+            });
+
+        // La validación de vencimiento de Microsoft.IdentityModel usa DateTime.UtcNow. Para que
+        // emitir y validar usen el MISMO reloj (y las pruebas puedan fijarlo), se reemplaza por
+        // uno basado en TimeProvider. Configure<TimeProvider> inyecta el servicio del contenedor.
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<TimeProvider>((options, clock) =>
+            {
+                var skew = options.TokenValidationParameters.ClockSkew;
+                options.TokenValidationParameters.LifetimeValidator = (notBefore, expires, _, _) =>
+                {
+                    var now = clock.GetUtcNow().UtcDateTime;
+                    return (notBefore is null || notBefore.Value <= now + skew)
+                        && (expires is null || expires.Value > now - skew);
+                };
+            });
+
+        // FallbackPolicy aplica a todo endpoint sin [Authorize] ni [AllowAnonymous]:
+        // olvidar el atributo en un controlador nuevo no lo deja abierto por accidente.
+        services.AddAuthorizationBuilder()
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
         return services;
     }
@@ -62,8 +148,8 @@ public static class ServiceCollectionExtensions
     // Rate limiting (.NET 7+): ventana fija por IP. Protege contra abuso o bucles del cliente.
     public static IServiceCollection AddTaskFlowRateLimiting(this IServiceCollection services, IConfiguration configuration)
     {
-        var limit = configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()?.PermitLimitPerMinute
-            ?? new RateLimitOptions().PermitLimitPerMinute;
+        var settings = configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>() ?? new RateLimitOptions();
+        var limit = settings.PermitLimitPerMinute;
 
         services.AddRateLimiter(options =>
         {
@@ -80,6 +166,17 @@ public static class ServiceCollectionExtensions
                         QueueLimit = 0
                     }));
 
+            // Política con nombre para login/registro ([EnableRateLimiting("auth")]), por IP.
+            options.AddPolicy(RateLimitOptions.AuthPolicy, context =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = settings.AuthPermitLimitPerMinute,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0
+                    }));
+
             // El 429 también sale como ProblemDetails.
             options.OnRejected = async (context, ct) =>
             {
@@ -91,7 +188,7 @@ public static class ServiceCollectionExtensions
                     {
                         Status = StatusCodes.Status429TooManyRequests,
                         Title = "Demasiadas solicitudes",
-                        Detail = $"Límite de {limit} solicitudes por minuto. Intenta más tarde."
+                        Detail = "Demasiadas solicitudes en poco tiempo. Espera un minuto e intenta de nuevo."
                     }
                 });
             };

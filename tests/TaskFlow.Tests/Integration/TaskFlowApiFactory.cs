@@ -37,6 +37,11 @@ public sealed class TaskFlowApiFactory : WebApplicationFactory<Program>, IAsyncL
         // UseSetting se aplica antes de que Program.cs lea la configuración.
         builder.UseSetting("ConnectionStrings:TaskFlow", ConnectionString);
         builder.UseSetting("RateLimiting:PermitLimitPerMinute", "100000");
+        builder.UseSetting("RateLimiting:AuthPermitLimitPerMinute", "100000");
+        // Clave solo para pruebas (la real vive en User Secrets).
+        builder.UseSetting("Jwt:Key", "clave-de-pruebas-de-integracion-0123456789abcdef");
+        // Algunas pruebas adelantan el reloj varios días; el token debe seguir vigente.
+        builder.UseSetting("Jwt:ExpiresMinutes", "10080");
 
         // Reemplaza el reloj real por el falso en el contenedor de DI.
         builder.ConfigureServices(services =>
@@ -69,6 +74,7 @@ public sealed class TaskFlowApiFactory : WebApplicationFactory<Program>, IAsyncL
             DELETE FROM Activities;
             DELETE FROM RestDays;
             DELETE FROM MonthlyRestLimits;
+            DELETE FROM Users;
             """);
     }
 
@@ -99,7 +105,28 @@ public abstract class ApiTestBase(TaskFlowApiFactory factory) : IAsyncLifetime
     protected readonly HttpClient Client = factory.CreateClient();
     protected static DateOnly Today => TaskFlowApiFactory.Today;
 
-    public Task InitializeAsync() => Factory.ResetAsync();
+    // Usuario con el que corre cada prueba (el primero registrado => Admin).
+    protected TaskFlow.DTOs.UserResponse CurrentUser { get; private set; } = null!;
+
+    // BD limpia + registro de un usuario + token en el encabezado Authorization del Client.
+    public async Task InitializeAsync()
+    {
+        await Factory.ResetAsync();
+        CurrentUser = await LoginAsNewUserAsync(Client, "principal@test.com");
+    }
+
+    // Registra un usuario y deja su JWT en el HttpClient indicado.
+    protected static async Task<TaskFlow.DTOs.UserResponse> LoginAsNewUserAsync(
+        HttpClient client, string email, string password = "Secreta123")
+    {
+        var response = await client.PostAsJsonAsync("/api/auth/register",
+            new { email, displayName = email.Split('@')[0], password }, TaskFlowApiFactory.Json);
+        response.EnsureSuccessStatusCode();
+        var auth = (await response.Content.ReadFromJsonAsync<TaskFlow.DTOs.AuthResponse>(TaskFlowApiFactory.Json))!;
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", auth.Token);
+        return auth.User;
+    }
     public Task DisposeAsync() => Task.CompletedTask;
 
     protected Task<HttpResponseMessage> PostAsync(string url, object body) =>

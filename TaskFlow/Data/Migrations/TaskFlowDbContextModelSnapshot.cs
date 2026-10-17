@@ -45,7 +45,12 @@ namespace TaskFlow.Data.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Activities", (string)null);
                 });
@@ -164,12 +169,15 @@ namespace TaskFlow.Data.Migrations
                     b.Property<int>("Month")
                         .HasColumnType("int");
 
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
                     b.Property<int>("Year")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Year", "Month")
+                    b.HasIndex("UserId", "Year", "Month")
                         .IsUnique();
 
                     b.ToTable("MonthlyRestLimits", null, t =>
@@ -198,12 +206,75 @@ namespace TaskFlow.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Date")
+                    b.HasIndex("UserId", "Date")
                         .IsUnique();
 
                     b.ToTable("RestDays", (string)null);
+                });
+
+            modelBuilder.Entity("TaskFlow.Entities.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.ToTable("Users", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Users_Role", "[Role] IN (1, 2)");
+                        });
+                });
+
+            modelBuilder.Entity("TaskFlow.Entities.Activity", b =>
+                {
+                    b.HasOne("TaskFlow.Entities.User", "User")
+                        .WithMany("Activities")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("TaskFlow.Entities.ActivitySchedule", b =>
@@ -239,6 +310,24 @@ namespace TaskFlow.Data.Migrations
                     b.Navigation("Activity");
                 });
 
+            modelBuilder.Entity("TaskFlow.Entities.MonthlyRestLimit", b =>
+                {
+                    b.HasOne("TaskFlow.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("TaskFlow.Entities.RestDay", b =>
+                {
+                    b.HasOne("TaskFlow.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("TaskFlow.Entities.Activity", b =>
                 {
                     b.Navigation("DailyRecords");
@@ -249,6 +338,11 @@ namespace TaskFlow.Data.Migrations
             modelBuilder.Entity("TaskFlow.Entities.ActivitySchedule", b =>
                 {
                     b.Navigation("Days");
+                });
+
+            modelBuilder.Entity("TaskFlow.Entities.User", b =>
+                {
+                    b.Navigation("Activities");
                 });
 #pragma warning restore 612, 618
         }
