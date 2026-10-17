@@ -1,6 +1,29 @@
-@TaskFlow_HostAddress = http://localhost:5057
+# Peticiones de ejemplo (Visual Studio / VS Code REST Client).
+@host = http://localhost:5057
 
-GET {{TaskFlow_HostAddress}}/weatherforecast/
-Accept: application/json
+GET {{host}}/api/calendar?year=2026&month=10
 
 ###
+GET {{host}}/api/activities
+
+###
+POST {{host}}/api/activities
+Content-Type: application/json
+
+{
+  "name": "Gym",
+  "description": "Pesas",
+  "schedule": { "startTime": "07:00", "endTime": "08:00", "days": ["Monday", "Wednesday", "Friday"] }
+}
+
+###
+PUT {{host}}/api/daily-records/1/2026-10-17
+Content-Type: application/json
+
+{ "status": "Completed", "actualEndTime": "08:10" }
+
+###
+POST {{host}}/api/rest-days
+Content-Type: application/json
+
+{ "date": "2026-10-25", "notes": "Domingo libre" }
