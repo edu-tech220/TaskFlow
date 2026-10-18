@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    # Real SQL Server for the integration tests (CHECK constraints, unique indexes, FKs).
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          # Ephemeral CI container: this password protects nothing real.
+          MSSQL_SA_PASSWORD: "Ci_Passw0rd_2026!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 20s
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      TASKFLOW_TEST_CONNECTION: "Server=localhost,1433;Database=TaskFlow_Tests;User Id=sa;Password=Ci_Passw0rd_2026!;Encrypt=True;TrustServerCertificate=True"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore TaskFlow.slnx
+
+      - name: Build
+        run: dotnet build TaskFlow.slnx -c Release --no-restore
+
+      - name: Test (unit + integration against SQL Server)
+        run: >
+          dotnet test TaskFlow.slnx -c Release --no-build
+          --logger "trx;LogFileName=results.trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults/
