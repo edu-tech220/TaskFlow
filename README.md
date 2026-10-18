@@ -1,140 +1,171 @@
-# TaskFlow
+# TaskFlow API
 
-Seguimiento de actividades diarias con horarios versionados, días de descanso y un calendario mensual de cumplimiento.
+[![CI](https://github.com/edu-tech220/TaskFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/edu-tech220/TaskFlow/actions/workflows/ci.yml)
+![.NET](https://img.shields.io/badge/.NET-10-512BD4)
+![SQL Server](https://img.shields.io/badge/SQL%20Server-EF%20Core%2010-CC2927)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-| Proyecto | Qué es | URL local |
-|---|---|---|
-| `TaskFlow/` | API REST (ASP.NET Core Web API + EF Core + SQL Server) | https://localhost:7256 (perfil `https`) / http://localhost:5057 (perfil `http`) |
-| `tests/TaskFlow.Tests/` | Pruebas xUnit: unitarias e integración contra SQL Server | — |
-| `postman/` | Colección y entorno de Postman (50 peticiones, 116 aserciones) | — |
+A REST API for **daily habit tracking**: users schedule recurring activities, record what they
+completed each day, plan rest days within a monthly limit, and get a calendar that summarizes how
+each day went.
 
-**Frontend:** vive en su propio repositorio, [edu-tech220/TaskFlow.Web](https://github.com/edu-tech220/TaskFlow.Web) (ASP.NET Core MVC). Consume esta API por HTTP en `https://localhost:7256`.
+The interesting part is the domain: schedules are **versioned** so changing a routine never rewrites
+history, "pending" is **derived instead of stored**, and the monthly calendar is computed with a
+**fixed number of SQL queries** regardless of how many activities exist.
 
-## Requisitos
+**Frontend:** [edu-tech220/TaskFlow.Web](https://github.com/edu-tech220/TaskFlow.Web) (ASP.NET Core MVC).
 
-- .NET SDK 10
-- SQL Server (Express sirve) en `.\SQLEXPRESS` con autenticación de Windows
-- Herramienta EF: `dotnet tool install --global dotnet-ef`
+![Dashboard (TaskFlow.Web)](https://raw.githubusercontent.com/edu-tech220/TaskFlow.Web/main/docs/images/dashboard.png)
 
-## Puesta en marcha
+## Highlights
+
+- **Versioned schedules.** Changing an activity's days or hours closes the current version and
+  starts a new one tomorrow; today and the past never change. A version that starts today or later
+  and has no records is edited in place.
+- **Derived state.** There is no `IsActive` column and no "pending" record: both are computed from
+  schedule versions and the absence of a record.
+- **Day status rules** evaluated in order (first match wins):
+  `Future → RestDay → NoActivities → Completed → InProgress → Failed → Partial`.
+- **Calendar without N+1.** A month is resolved with 4 queries (schedules, records, rest days,
+  limit) using `AsNoTracking` projections; everything else is computed in memory by pure functions.
+- **Per-user data isolation.** Every query is scoped to the authenticated user; requesting another
+  user's resource returns 404.
+- **Testable time.** "Today" is computed in a configurable time zone through `TimeProvider`, so
+  tests control the clock.
+
+## Tech stack
+
+| Area | Technology |
+|---|---|
+| API | ASP.NET Core 10 Web API, OpenAPI + Swagger UI |
+| Data | Entity Framework Core 10 (Code First, Fluent API, migrations), SQL Server |
+| Security | JWT Bearer, `PasswordHasher` (PBKDF2), role-based authorization, rate limiting, CORS |
+| Errors | `ProblemDetails` (RFC 9457) with stable error codes, global exception handler |
+| Tests | xUnit, `WebApplicationFactory` against a real SQL Server, Postman/Newman collection |
+| CI | GitHub Actions (build + 51 tests against a SQL Server container) |
+
+## Getting started
+
+Requirements: .NET SDK 10, SQL Server (Express works) at `.\SQLEXPRESS` with Windows authentication,
+and the EF Core CLI (`dotnet tool install --global dotnet-ef`).
 
 ```powershell
-# 0. Clave para firmar los JWT (una sola vez por máquina; NO va en el repo)
+# 1. JWT signing key (once per machine; never committed)
 cd TaskFlow
-dotnet user-secrets set "Jwt:Key" "<una-clave-aleatoria-de-32+-caracteres>"
-cd ..
+dotnet user-secrets set "Jwt:Key" "<a-random-key-with-32+-characters>"
 
-# 1. Crear la base TaskFlow con las migraciones
-cd TaskFlow
+# 2. Create the database from the migrations
 dotnet ef database update
 
-# 2. Levantar la API (Swagger UI en https://localhost:7256/swagger)
+# 3. Run the API (Swagger UI at https://localhost:7256/swagger)
 dotnet run --launch-profile https
 ```
 
-En Visual Studio, elige el perfil **https** en el botón de ejecutar (no IIS Express): el frontend espera la API en `https://localhost:7256`.
+In Visual Studio pick the **https** launch profile (not IIS Express): the frontend expects the API at
+`https://localhost:7256`.
 
-`Cors:AllowedOrigins` en `appsettings.Development.json` ya incluye los puertos del frontend (`https://localhost:7100`, `http://localhost:5100`) por si en el futuro se llama a la API desde el navegador.
+## Configuration
 
-## Autenticación y usuarios
-
-- Login con correo y contraseña → **JWT** (HMAC-SHA256, 8 h). Se manda en `Authorization: Bearer <token>`.
-- Contraseñas con `PasswordHasher<User>` (PBKDF2 + salt, el mismo de ASP.NET Identity).
-- **Todo requiere login** (política global), salvo `register`, `login` y la documentación OpenAPI.
-- **Cada usuario solo ve sus datos**: actividades, registros, descansos y límites. Pedir un recurso de otro usuario da 404.
-- **El primer usuario registrado es Admin.** Los admins listan usuarios y pueden cambiarles el rol o desactivarlos; un usuario desactivado no puede entrar y su token deja de valer al instante.
-- Login y registro tienen rate limit estricto (10/min por IP) contra fuerza bruta.
-- En Swagger: `POST /api/auth/login` → copia `token` → botón **Authorize**.
-
-## Configuración de la API
-
-| Clave | Default | Para qué |
+| Key | Default | Purpose |
 |---|---|---|
-| `ConnectionStrings:TaskFlow` | (en `appsettings.Development.json`) | Cadena de conexión |
-| `Clock:TimeZoneId` | `America/Mexico_City` | Zona en la que se calcula "hoy" |
-| `RestDays:DefaultMonthlyLimit` | `4` | Límite de descansos de un mes sin límite propio |
-| `Cors:AllowedOrigins` | `[]` (dev: puertos del frontend) | Orígenes de navegador permitidos |
-| `RateLimiting:PermitLimitPerMinute` | `300` | Peticiones por IP por minuto |
-| `RateLimiting:AuthPermitLimitPerMinute` | `10` | Login/registro por IP por minuto |
-| `Jwt:Key` | **User Secrets** | Clave de firma (32+ caracteres) |
-| `Jwt:Issuer` / `Jwt:Audience` | `TaskFlow` | Validados en cada token |
-| `Jwt:ExpiresMinutes` | `480` | Vida del token |
+| `ConnectionStrings:TaskFlow` | `appsettings.Development.json` | Database connection |
+| `Jwt:Key` | **User Secrets** | Signing key (32+ characters) |
+| `Jwt:Issuer` / `Jwt:Audience` | `TaskFlow` | Validated on every token |
+| `Jwt:ExpiresMinutes` | `480` | Token lifetime |
+| `Clock:TimeZoneId` | `America/Mexico_City` | Time zone used to compute "today" |
+| `RestDays:DefaultMonthlyLimit` | `4` | Rest-day limit for months without a custom one |
+| `Cors:AllowedOrigins` | `[]` | Allowed browser origins |
+| `RateLimiting:PermitLimitPerMinute` | `300` | Requests per IP per minute |
+| `RateLimiting:AuthPermitLimitPerMinute` | `10` | Login/register attempts per IP per minute |
 
-**User Secrets:** `Jwt:Key` vive ahí (fuera del repo). La cadena de desarrollo usa autenticación de Windows (no tiene contraseña), por eso vive en `appsettings.Development.json`. Si usas un usuario SQL, guárdala también en secretos:
+The development connection string uses Windows authentication (no password), so it lives in
+`appsettings.Development.json`. If you use a SQL login, store it in User Secrets instead.
+
+## Authentication
+
+- Email + password login returns a **JWT** (HMAC-SHA256). Send it as `Authorization: Bearer <token>`.
+- **Everything requires authentication** (global fallback policy) except `register`, `login` and the
+  OpenAPI document.
+- **The first registered user becomes Admin.** Admins can list users, change roles and deactivate
+  accounts; a deactivated user's token stops working immediately.
+- In Swagger: `POST /api/auth/login` → copy `token` → **Authorize**.
+
+## API
+
+| Method | Route | Notes |
+|---|---|---|
+| POST | `/api/auth/register` | Public. 201 + `{ token, expiresAt, user }` |
+| POST | `/api/auth/login` | Public. 401 on invalid credentials |
+| GET/PUT | `/api/auth/me` | Own profile |
+| PUT | `/api/auth/me/password` | `{ currentPassword, newPassword }` |
+| GET | `/api/users` | Admin only |
+| PUT | `/api/users/{id}` | Admin only: `{ role, isActive }` (not on yourself) |
+| GET | `/api/activities` | Activities with current schedule and history |
+| GET | `/api/activities/{id}` | |
+| POST | `/api/activities` | Creates the activity and its first schedule version (201 + Location) |
+| PUT | `/api/activities/{id}` | Name/description; optional `schedule` creates a new version from tomorrow |
+| PATCH | `/api/activities/{id}/status` | `false` closes today; `true` reactivates from tomorrow |
+| DELETE | `/api/activities/{id}` | 409 if it has records (deactivate instead) |
+| GET | `/api/rest-days?year=&month=` | Month summary: limit, used, remaining, days |
+| POST | `/api/rest-days` | Today or future only; enforces the monthly limit (409) |
+| DELETE | `/api/rest-days/{date}` | Today or future only |
+| GET/PUT | `/api/rest-day-limits/{year}/{month}` | 0–10; cannot go below days already used (409) |
+| GET | `/api/daily-records?date=` or `?from=&to=` | |
+| PUT | `/api/daily-records/{activityId}/{date}` | Upsert: 201 on create, 200 on update |
+| DELETE | `/api/daily-records/{activityId}/{date}` | Undo a record |
+| GET | `/api/calendar?year=&month=` | Status of every day (4 SQL queries) |
+| GET | `/api/calendar/days/{date}` | A single day |
+
+All errors are `application/problem+json` with a stable `code` extension
+(`ActivityHasRecords`, `MonthlyRestLimitReached`, `ScheduleMustStartInFuture`, ...).
+
+## Tests
 
 ```powershell
-cd TaskFlow
-dotnet user-secrets set "ConnectionStrings:TaskFlow" "Server=...;User Id=...;Password=..."
+dotnet test    # 51 tests; creates and drops the TaskFlow_Tests database
 ```
 
-## Endpoints
-
-| Método | Ruta | Notas |
-|---|---|---|
-| POST | `/api/auth/register` | Público. 201 + `{ token, expiresAt, user }` |
-| POST | `/api/auth/login` | Público. 401 si las credenciales no son válidas |
-| GET/PUT | `/api/auth/me` | Perfil propio (nombre) |
-| PUT | `/api/auth/me/password` | `{ currentPassword, newPassword }` |
-| GET | `/api/users` | Solo Admin |
-| PUT | `/api/users/{id}` | Solo Admin: `{ role, isActive }` (no a sí mismo) |
-| GET | `/api/activities` | Lista con horario vigente e historial |
-| GET | `/api/activities/{id}` | |
-| POST | `/api/activities` | Crea actividad + primera versión de horario (201 + Location) |
-| PUT | `/api/activities/{id}` | Nombre/descr.; `schedule` opcional crea versión desde mañana |
-| PATCH | `/api/activities/{id}/status` | `{ "isActive": false }` cierra hoy; `true` reactiva desde mañana |
-| DELETE | `/api/activities/{id}` | 409 si tiene registros (desactívala) |
-| GET | `/api/rest-days?year=&month=` | Resumen del mes: límite, usados, restantes, días |
-| GET | `/api/rest-days/{date}` | |
-| POST | `/api/rest-days` | Solo hoy o futuro; respeta el límite (409) |
-| DELETE | `/api/rest-days/{date}` | Solo hoy o futuro |
-| GET/PUT | `/api/rest-day-limits/{year}/{month}` | 0–10; no menor a los usados (409) |
-| GET | `/api/daily-records?date=` o `?from=&to=` | |
-| GET | `/api/daily-records/{activityId}/{date}` | |
-| PUT | `/api/daily-records/{activityId}/{date}` | Upsert: 201 al crear, 200 al actualizar |
-| DELETE | `/api/daily-records/{activityId}/{date}` | Corrige un registro (vuelve a Pending/Unrecorded) |
-| GET | `/api/calendar?year=&month=` | Estados de cada día, 4 consultas SQL fijas |
-| GET | `/api/calendar/days/{date}` | Un solo día |
-
-Todos los errores son `ProblemDetails` (`application/problem+json`) con una extensión `code` estable (`ActivityHasRecords`, `MonthlyRestLimitReached`, ...).
-
-## Modelo y reglas clave
-
-- **Horarios versionados**: cambiar días u horas nunca edita el pasado; se cierra la versión vigente y se crea otra desde mañana. Una versión que empieza hoy o después y no tiene registros se edita en su lugar.
-- **No existe `IsActive`**: una actividad está activa si alguna versión sigue vigente después de hoy.
-- **"Pendiente" no se guarda**: la ausencia de registro se interpreta al consultar (Pending hoy, Unrecorded en el pasado).
-- **Estado del día** (gana la primera regla): Future → RestDay → NoActivities → Completed → InProgress → Failed → Partial.
-
-## Pruebas
+- **Unit tests:** day-status rules and their precedence, time-zone handling, schedule rules.
+- **Integration tests:** the full API in memory with `WebApplicationFactory` against a real SQL
+  Server and a controllable clock: authentication, per-user isolation, admin operations, expired
+  tokens, schedule versioning, rest-day limits, daily records and calendar statuses.
+- **Postman:** `postman/` contains a collection (50 requests, 116 assertions) runnable with Newman:
 
 ```powershell
-dotnet test                       # 51 pruebas; crea/borra la base TaskFlow_Tests
-
-# Postman (con la API corriendo en http://localhost:5057; registra usuarios nuevos en cada corrida)
 npx newman run postman/TaskFlow.postman_collection.json -e postman/TaskFlow.Local.postman_environment.json
 ```
 
-En Postman: *Import* → los dos archivos de `postman/` → seleccionar el entorno *TaskFlow Local* → *Run collection*.
+Integration tests use `.\SQLEXPRESS` locally or the `TASKFLOW_TEST_CONNECTION` environment variable
+(that is how CI runs them against a SQL Server container).
 
-## Migraciones
+## Migrations
 
 ```powershell
 cd TaskFlow
-dotnet ef migrations add NombreDelCambio -o Data/Migrations
+dotnet ef migrations add <Name> -o Data/Migrations
 dotnet ef database update
-# Revertir todo y borrar la última migración:
+# Roll everything back and remove the last migration:
 dotnet ef database update 0
 dotnet ef migrations remove
 ```
 
-## Estructura de la API
+## Project structure
 
 ```
 TaskFlow/
-  Common/        Result/Error, AppClock (zona horaria), opciones, manejo global de errores, extensiones de DI
-  Controllers/   Controladores delgados: HTTP <-> servicio
+  Common/        Result/Error, AppClock (time zone), options, global error handling, DI extensions
+  Controllers/   Thin controllers: HTTP <-> service
   Data/          TaskFlowDbContext, Configurations/ (Fluent API), Migrations/
-  DTOs/          Contratos de entrada/salida (nunca se exponen entidades)
-  Entities/      Modelo de EF Core
-  Enums/         Estado persistido (DailyRecordStatus) y estados calculados
-  Services/      Reglas de negocio; DayStatusCalculator y ScheduleRules son funciones puras
+  DTOs/          Request/response contracts (entities are never exposed)
+  Entities/      EF Core model
+  Enums/         Persisted status and calculated statuses
+  Services/      Business rules; DayStatusCalculator and ScheduleRules are pure functions
+tests/TaskFlow.Tests/
+  Unit/          Pure rules
+  Integration/   API + SQL Server
+postman/         Collection and environment
 ```
+
+## License
+
+[MIT](LICENSE)

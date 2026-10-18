@@ -17,7 +17,9 @@ namespace TaskFlow.Tests.Integration;
 // se prueben de verdad; un proveedor en memoria no los respetaría.
 public sealed class TaskFlowApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string ConnectionString =
+    // CI provides TASKFLOW_TEST_CONNECTION (SQL Server container); locally it falls back to SQLEXPRESS.
+    public static readonly string ConnectionString =
+        Environment.GetEnvironmentVariable("TASKFLOW_TEST_CONNECTION") ??
         "Server=.\\SQLEXPRESS;Database=TaskFlow_Tests;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Application Name=TaskFlow.Tests";
 
     // "Hoy" fijo: miércoles 11 de marzo de 2026, 12:00 en Ciudad de México (18:00 UTC).
